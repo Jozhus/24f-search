@@ -1,4 +1,8 @@
-const fftSize: number = 32768; // 32768
+const analyserOptions = {
+	fftSize: 32768, // 32768 max
+	smoothingTimeConstant: 0.5
+}
+
 const streamOptions = {
 	video: false,
 	audio: true
@@ -10,6 +14,7 @@ class Audio {
 	analyser: AnalyserNode | null;
 	canvas: HTMLCanvasElement | null;
 	enabled: boolean = false;
+	fundamentalFreq: number = 0;
 
     constructor(canvas: HTMLCanvasElement) {
 		this.data = null;
@@ -38,7 +43,8 @@ class Audio {
 			try {
 				const audioCtx: AudioContext = new AudioContext();
 				this.analyser = audioCtx.createAnalyser();
-				this.analyser.fftSize = fftSize;       
+				this.analyser.fftSize = analyserOptions.fftSize;
+				this.analyser.smoothingTimeConstant = analyserOptions.smoothingTimeConstant;
 				audioCtx.createMediaStreamSource(await navigator.mediaDevices.getUserMedia(streamOptions)).connect(this.analyser);
 				this.data = new Uint8Array(this.analyser.frequencyBinCount);
 			} catch (err) {
@@ -84,11 +90,14 @@ class Audio {
 						max_val = barHeight;
 						max_index = i;
 					}
-	
+
 					canvasCtx.fillStyle = 'rgb(' + (barHeight+100) + ',50,50)';
+
 					canvasCtx.fillRect(x,HEIGHT-barHeight/2,barWidth,barHeight/2);
 					x += barWidth;
-				} 
+				}
+				
+				this.fundamentalFreq = 48000 * max_index / analyserOptions.fftSize;
 			} catch (err) {
 				console.error("Failed to draw!", err);
 			}
