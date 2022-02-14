@@ -1,6 +1,17 @@
+import DynamicTimeWarping from "dynamic-time-warping-ts"; 
+import { BGMs } from "./BGMs";
+
 const analyserOptions = {
 	fftSize: 32768, // 32768 max
-	smoothingTimeConstant: 0.25 //0.5
+	smoothingTimeConstant: 0.25, //0.5,
+	intervalSpeed: 100,
+	minSearchSize: 1, // In seconds
+	maxSearchSize: 10
+}
+
+const drawOptions = {
+	curveXScale: 3,
+	curveYScale: 3000
 }
 
 const streamOptions = {
@@ -8,7 +19,7 @@ const streamOptions = {
 	audio: true
 }
 
-const pitch = {
+const pitch: {[key: string]: number} = {
 	C: 523.25,
 	Db: 554.37,
 	D: 587.33,
@@ -26,25 +37,32 @@ const pitch = {
 
 class Audio {
 	data: Uint8Array | null;
+	curvePoints: number[];
+	prevCurvePoints: number[];
 	interval: NodeJS.Timer | null;
 	analyser: AnalyserNode | null;
-	canvas: HTMLCanvasElement | null;
+	graph: HTMLCanvasElement | null;
+	curve: HTMLCanvasElement | null;
 	enabled: boolean = false;
 	sampleRate: number = 0;
-	fundamentalFreq: number = 0;
+	guesses: { [key: string]: number };
 
-    constructor(canvas: HTMLCanvasElement) {
+    constructor(graph: HTMLCanvasElement, curve: HTMLCanvasElement) {
 		this.data = null;
+		this.curvePoints = [];
+		this.prevCurvePoints = [];
 		this.interval = null;
 		this.analyser = null;
-		this.canvas = canvas;
+		this.graph = graph;
+		this.curve = curve;
+		this.guesses = {};
 
 		this.init();
     }
 
 	async init(): Promise<void> {
 		await this.initAnalyser();
-		this.initInterval(100);
+		this.initInterval(analyserOptions.intervalSpeed);
 	}
 
 	public get isEnabled(): boolean {
@@ -110,47 +128,117 @@ class Audio {
 	}
 	
 	private draw(): void {
-		if (this.canvas) {
-			try {
-				const canvasCtx: CanvasRenderingContext2D = this.canvas.getContext("2d")!;
-				const WIDTH: number = this.canvas.width;
-				const HEIGHT: number = this.canvas.height;
-				const bufferLength: number = this.analyser!.frequencyBinCount;
-	
-				canvasCtx.fillStyle = 'rgb(0, 0, 0)';
-				canvasCtx.fillRect(0, 0, WIDTH, HEIGHT);
-	
-				const barWidth = (WIDTH / bufferLength) * 2.5;
-				let max_val = -Infinity;
-				let max_index = -1;
-				let x = 0;
-				for(let i = 0; i < bufferLength; i++) {
-					let barHeight = this.data![i];
-					if (barHeight > 100 && barHeight > max_val) {
-						max_val = barHeight;
-						max_index = i;
-					}
+		if (!this.data || !this.graph || !this.curve) {
+			return;
+		} 
 
-					canvasCtx.fillStyle = 'rgb(' + (barHeight+100) + ',50,50)';
+		const bufferLength: number = this.analyser!.frequencyBinCount;
+		const graphCtx: CanvasRenderingContext2D = this.graph.getContext("2d")!;
+		const curveCtx: CanvasRenderingContext2D = this.curve.getContext("2d")!;
+		const graphWidth: number = this.graph.width;
+		const graphHeight: number = this.graph.height;
+		const curveWidth: number = this.curve.width;
+		const curveHeight: number = this.curve.height;
+		const barWidth: number = (graphWidth / bufferLength) * 2.5;
+		let max_val: number = -Infinity;
+		let max_index: number = -1;
 
-					canvasCtx.fillRect(x,HEIGHT-barHeight/2,barWidth,barHeight);
-					x += barWidth;
-				}
+		/* Draw some graph stuff */
+		graphCtx.fillStyle = 'rgb(0, 0, 0)';
+		graphCtx.fillRect(0, 0, graphWidth, graphHeight);
 
-				canvasCtx.strokeStyle = 'rgb(0, 255, 0)';
-				canvasCtx.strokeRect(0, HEIGHT-(max_val/2), WIDTH, 1);
-
-				canvasCtx.strokeStyle = 'rgb(255, 255, 0)';
-				canvasCtx.strokeRect(max_index * barWidth, 0, 1, HEIGHT);
-				
-				this.fundamentalFreq = this.sampleRate * max_index / analyserOptions.fftSize;
-				canvasCtx.fillStyle = 'rgb(0, 0, 255)';
-				canvasCtx.font = '48px serif';
-  				canvasCtx.fillText(this.findNearestPitch(this.fundamentalFreq), WIDTH - 75, 50);
-			} catch (err) {
-				console.error(`Failed to draw! ${this.fundamentalFreq}`, err);
+		this.data.forEach((barHeight: number, index: number) => {
+			if (barHeight > 100 && barHeight < 1100 && barHeight > max_val) {
+				max_val = barHeight;
+				max_index = index;
 			}
+
+			graphCtx.fillStyle = 'rgb(' + (barHeight + 100) + ', 50, 50)';
+			graphCtx.fillRect(index * barWidth, graphHeight - (barHeight / 2), barWidth, barHeight);
+		});
+
+		const fundamentalFreq: number = this.sampleRate * (max_index / analyserOptions.fftSize);
+		const foundPitch: string = this.findNearestPitch(fundamentalFreq);
+
+		graphCtx.strokeStyle = 'rgb(0, 255, 0)';
+		graphCtx.strokeRect(0, graphHeight - (max_val / 2), graphWidth, 1);
+
+		graphCtx.strokeStyle = 'rgb(255, 255, 0)';
+		graphCtx.strokeRect(max_index * barWidth, 0, 1, graphHeight);
+		
+		graphCtx.fillStyle = 'rgb(0, 0, 255)';
+		graphCtx.font = '48px serif';
+		graphCtx.fillText(foundPitch, graphWidth - 75, 50);
+
+		if (this.curvePoints.length > (analyserOptions.maxSearchSize * 1000) / analyserOptions.intervalSpeed) {
+			this.curvePoints = [];
 		}
+
+		this.curvePoints.push(fundamentalFreq);
+
+		curveCtx.fillStyle = 'rgb(0, 0, 0)';
+		curveCtx.fillRect(0, 0, curveWidth, curveHeight);
+
+		curveCtx.strokeStyle = 'rgb(255, 255, 0)';
+		curveCtx.beginPath();
+		curveCtx.moveTo(0, 0);
+
+		this.curvePoints.forEach((yVal: number, index: number) => {
+			const adjustedYVal: number = curveHeight * yVal / drawOptions.curveYScale;
+			curveCtx.lineTo(index * drawOptions.curveXScale, curveHeight - (adjustedYVal));
+		});
+
+		curveCtx.stroke();
+
+		if (this.curvePoints.length >= (analyserOptions.minSearchSize * 1000) / analyserOptions.intervalSpeed) {
+			let bestMatch: number = Infinity;
+			let bestMatchName: string = "";
+
+			Object.entries(BGMs).forEach(([key, value]: [string, number[]]) => {
+				const yVals: number[] = [...value];
+
+				while (yVals.length) {
+					const matchScore: number = new DynamicTimeWarping(this.curvePoints, yVals.splice(0, this.curvePoints.length), (a: number, b: number) => Math.abs(a - b)).getDistance();
+
+					if (matchScore < bestMatch) {
+						bestMatch = matchScore;
+						bestMatchName = key;
+					}
+				}
+			})
+
+			this.guesses[bestMatchName] = (this.guesses[bestMatchName] || 0) + 1;
+
+			console.log(JSON.stringify(this.guesses));
+		}
+
+		/*if(this.prevCurvePoints.length) {
+			const dtw1: DynamicTimeWarping<number> = new DynamicTimeWarping(this.curvePoints, this.prevCurvePoints, (a: number, b: number) => Math.abs(a - b));
+
+			curveCtx.strokeStyle = 'rgb(0, 255, 0)';
+			curveCtx.beginPath();
+			curveCtx.moveTo(0, 0);
+
+			this.prevCurvePoints.forEach((yVal: number, index: number) => {
+				const adjustedYVal: number = curveHeight * yVal / drawOptions.curveYScale;
+				curveCtx.lineTo(index * drawOptions.curveXScale, curveHeight - (adjustedYVal));
+			});
+
+			curveCtx.stroke();
+
+			curveCtx.strokeStyle = 'rgba(0, 0, 255, 0.1)';
+			curveCtx.beginPath();
+			dtw.getPath().forEach((indices: [number, number]) => {
+				curveCtx.moveTo(indices[0] * drawOptions.curveXScale, curveHeight - curveHeight * this.curvePoints[indices[0]] / drawOptions.curveYScale);
+				curveCtx.lineTo(indices[1] * drawOptions.curveXScale, curveHeight -  curveHeight * this.prevCurvePoints[indices[1]] / drawOptions.curveYScale)
+			});
+
+			curveCtx.stroke();
+
+			curveCtx.fillStyle = 'rgb(0, 0, 255)';
+			curveCtx.font = '48px serif';
+			//curveCtx.fillText(`${dtw.getDistance()}`, curveWidth - 300, 50);
+		}*/
 	}
 }
 
