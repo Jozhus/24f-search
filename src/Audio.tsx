@@ -3,6 +3,7 @@ import { BGMs } from "./constants/BGMs";
 import React from "react";
 import { findNearestPitch } from "./helpers/freqToPitch";
 import { v4 as uuid } from "uuid";
+import { Button, Col, Container, Row, Table } from "reactstrap";
 
 const analyserOptions = {
 	fftSize: 32768, // 32768 max
@@ -29,6 +30,7 @@ interface IAudioState {
 	enabled: boolean;
 	sampleRate: number;
 	guesses: { [key: string]: number };
+	lastGuessed: string;
 	graph?: HTMLCanvasElement;
 	curve?: HTMLCanvasElement;
 	data?: Uint8Array | null;
@@ -46,7 +48,8 @@ class Audio extends React.Component<any, IAudioState> {
 			curvePoints: [],
 			enabled: false,
 			sampleRate: 0,
-			guesses: {}
+			guesses: {},
+			lastGuessed: ""
 		};
 
 		this.toggleEnable = this.toggleEnable.bind(this);
@@ -63,6 +66,13 @@ class Audio extends React.Component<any, IAudioState> {
 	}
 
 	public toggleEnable(): void {
+		if (!this.state.enabled) {
+			this.setState({
+				curvePoints: [],
+				guesses: {}
+			});
+		}
+
 		this.setState({ enabled: !this.state.enabled });
 	}
 
@@ -163,11 +173,10 @@ class Audio extends React.Component<any, IAudioState> {
 
 		curveCtx.strokeStyle = 'rgb(255, 255, 0)';
 		curveCtx.beginPath();
-		curveCtx.moveTo(0, 0);
+		curveCtx.moveTo(0, curveHeight);
 
 		newCurvePoints.forEach((yVal: number, index: number) => {
-			const adjustedYVal: number = curveHeight * yVal / drawOptions.curveYScale;
-			curveCtx.lineTo(index * (curveWidth / ((analyserOptions.maxSearchSize * 1000) / analyserOptions.intervalSpeed)), curveHeight - (adjustedYVal));
+			curveCtx.lineTo(index * (curveWidth / ((analyserOptions.maxSearchSize * 1000) / analyserOptions.intervalSpeed)), curveHeight - (curveHeight * yVal / drawOptions.curveYScale));
 		});
 
 		curveCtx.stroke();
@@ -193,7 +202,8 @@ class Audio extends React.Component<any, IAudioState> {
 
 			this.setState({
 				curvePoints: newCurvePoints,
-				guesses: newGuesses
+				guesses: newGuesses,
+				lastGuessed: bestMatchName
 			});
 		}
 	}
@@ -201,48 +211,70 @@ class Audio extends React.Component<any, IAudioState> {
 	render(): JSX.Element {
 		return (
 			<React.Fragment>
-				<button
-					onClick={async () => {
-						if (!this.state.analyser) {
-							await this.initAnalyser();
-							this.initInterval();
-						}
+				<Container fluid>
+					<Row>
+						<Col>
+							<Button
+								style={{
+									position: "relative",
+									left: "50%",
+									msTransform: "translate(-50%, 0)",
+  									transform: "translate(-50%, 0)",
+									margin: "15px 0px 15px 0px",
+									padding: "10px 50px 10px 50px",
+									alignContent: "center"
+								}}
+								color={this.state.enabled ? "danger" : "success"}
+								onClick={async () => {
+									if (!this.state.analyser) {
+										await this.initAnalyser();
+										this.initInterval();
+									}
 
-						this.toggleEnable();
-					}}
-				>
-					Button
-				</button>
-				<br />
-				<canvas 
-					ref={this.state.graphRef}
-					width={1000}
-					height={500}
-				/>
-				<br />
-				<canvas 
-					ref={this.state.curveRef}
-					width={1000}
-					height={500}
-				/>
-				<table>
-					<thead>
-						<tr>
-							<th>Confidence</th>
-							<th>BGM Name</th>
-						</tr>
-					</thead>
-					<tbody>
-						{Object.entries(this.state.guesses).sort((firstEl: [string, number], secondEl: [string, number]) => secondEl[1] - firstEl[1]).map(([key, value]: [string, number]) => {
-							return (
-								<tr key={uuid()}>
-									<td>{(100 * value / Object.values(this.state.guesses).reduce((acc: number, val: number) => acc + val, 0)).toFixed(2)}%</td>
-									<td>{key}</td>
-								</tr>
-							);
-						})}
-					</tbody>
-				</table>
+									this.toggleEnable();
+								}}
+							>
+								{this.state.enabled ? "Stop" : "Start"}
+							</Button>
+							<canvas 
+								ref={this.state.graphRef}
+								width={1000}
+								height={250}
+							/>
+							<br />
+							<canvas 
+								ref={this.state.curveRef}
+								width={1000}
+								height={500}
+							/>
+						</Col>
+						<Col>
+							<Table hover>
+								<thead>
+									<tr>
+										<th>Confidence</th>
+										<th>BGM Name</th>
+									</tr>
+								</thead>
+								<tbody>
+									{Object.entries(this.state.guesses).sort((firstEl: [string, number], secondEl: [string, number]) => secondEl[1] - firstEl[1]).map(([key, value]: [string, number]) => {
+										return (
+											<tr 
+												key={uuid()}
+												style={{
+													borderLeft: key === this.state.lastGuessed ? `5px solid green` : ""
+												}}
+											>
+												<td>{(100 * value / Object.values(this.state.guesses).reduce((acc: number, val: number) => acc + val, 0)).toFixed(2)}%</td>
+												<td>{key}</td>
+											</tr>
+										);
+									})}
+								</tbody>
+							</Table>
+						</Col>
+					</Row>
+					</Container>
 			</React.Fragment>
 		);
 	}
