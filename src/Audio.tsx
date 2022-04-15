@@ -3,7 +3,7 @@ import { BGMs } from "./constants/BGMs";
 import React from "react";
 import { findNearestPitch } from "./helpers/freqToPitch";
 import { v4 as uuid } from "uuid";
-import { Button, Col, Container, Row, Table } from "reactstrap";
+import { Button, Col, Container, Modal, ModalBody, ModalHeader, Row, Table } from "reactstrap";
 
 const analyserOptions = {
 	fftSize: 32768, // 32768 max
@@ -36,6 +36,7 @@ interface IAudioState {
 	data?: Uint8Array | null;
 	interval?: NodeJS.Timer;
 	analyser?: AnalyserNode;
+	modalIsOpen: boolean;
 };
 
 class Audio extends React.Component<any, IAudioState> {
@@ -49,7 +50,8 @@ class Audio extends React.Component<any, IAudioState> {
 			enabled: false,
 			sampleRate: 0,
 			guesses: {},
-			lastGuessed: ""
+			lastGuessed: "",
+			modalIsOpen: false
 		};
 
 		this.toggleEnable = this.toggleEnable.bind(this);
@@ -211,31 +213,91 @@ class Audio extends React.Component<any, IAudioState> {
 	render(): JSX.Element {
 		return (
 			<React.Fragment>
+				<Modal
+					isOpen={this.state.modalIsOpen}
+				>
+					<ModalHeader
+						toggle={() => { this.setState({modalIsOpen: false}) }}
+					>
+						How to use
+					</ModalHeader>
+					<ModalBody>
+						<p>
+							1. Make sure game audio is on and is feeding into some sort of interpretable input such as:
+							<ul>
+								<li>Enabling stereo mix</li>
+								<li>Isolating the audio into its own virtual input via programs like VoiceMeeter</li>
+								<li>Having loud enough speaker to be picked up by your microphone</li>
+							</ul>
+						</p>
+
+						<p>2. Press "Start" and give your browser access to listen to the microphone / virtual input containing the game audio. You'll know if it's listening properly if you see waveforms from any sounds it hears.</p>
+
+						<p>3. Go back into the game and make sure the song is playing.</p>
+
+						<p>4. The right-side table will list the guesses for what BGM is playing in order of its confidence level.</p>
+
+						<hr />
+
+						<p>This tool should work at any point in any of the BGM's runtime with varying degrees of success</p>
+
+						<p>It also surprisingly works decently through the speaker + microphone input method, you just need to be a little quiet while it listens...</p>
+
+						<p>Do note that this tool is not perfect and should mainly be used as an assistant tool to narrow it down for you. However, from my tests, if it does not guess it correctly within the first 5 seconds, it will eventually get it after 20 or so seconds.</p>
+					</ModalBody>
+				</Modal>
 				<Container fluid>
 					<Row>
-						<Col>
-							<Button
+						<Col
+							style={{
+								textAlign: "center"
+							}}
+						>
+							<Row
 								style={{
+									width: "1000px",
 									position: "relative",
 									left: "50%",
 									msTransform: "translate(-50%, 0)",
   									transform: "translate(-50%, 0)",
-									margin: "15px 0px 15px 0px",
-									padding: "10px 50px 10px 50px",
-									alignContent: "center"
-								}}
-								color={this.state.enabled ? "danger" : "success"}
-								onClick={async () => {
-									if (!this.state.analyser) {
-										await this.initAnalyser();
-										this.initInterval();
-									}
-
-									this.toggleEnable();
+									display: "flex",
+									flexDirection: "row"
 								}}
 							>
-								{this.state.enabled ? "Stop" : "Start"}
-							</Button>
+								<Button
+									style={{
+										width: "50px",
+										display: "flex",
+										margin: "15px 25px 15px 25px",
+										padding: "10px 0px 10px 0px",
+										justifyContent: "center"
+									}}
+									onClick={() => { this.setState({modalIsOpen: true}) }}
+								>
+									?
+								</Button>
+								<Button
+									style={{
+										display: "flex",
+										margin: "15px 0px 15px 0px",
+										padding: "10px 0px 10px 0px",
+										justifyContent: "center",
+										width: "auto",
+										flexGrow: "1"
+									}}
+									color={this.state.enabled ? "danger" : "success"}
+									onClick={async () => {
+										if (!this.state.analyser) {
+											await this.initAnalyser();
+											this.initInterval();
+										}
+
+										this.toggleEnable();
+									}}
+								>
+									{this.state.enabled ? "Stop" : "Start"}
+								</Button>
+							</Row>
 							<canvas 
 								ref={this.state.graphRef}
 								width={1000}
